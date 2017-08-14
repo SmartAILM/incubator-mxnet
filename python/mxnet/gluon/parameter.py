@@ -1,3 +1,20 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 # coding: utf-8
 # pylint: disable=
 """Neural network parameter."""
@@ -77,7 +94,7 @@ class Parameter(object):
         self._var = None
         self._data = None
         self._grad = None
-        self._defered_init = ()
+        self._deferred_init = ()
 
     def __repr__(self):
         s = 'Parameter {name} (shape={shape}, dtype={dtype})'
@@ -91,7 +108,7 @@ class Parameter(object):
                     "It was only initialized on %s."%(
                         self.name, str(ctx), str(self.list_ctx())))
             return
-        if self._defered_init:
+        if self._deferred_init:
             raise DeferredInitializationError
         raise RuntimeError(
             "Parameter %s has not been initialized. Note that " \
@@ -116,8 +133,8 @@ class Parameter(object):
         if isinstance(ctx, Context):
             ctx = [ctx]
         if self._data is None:
-            if self._defered_init:
-                assert set(ctx) == set(self._defered_init[1]), \
+            if self._deferred_init:
+                assert set(ctx) == set(self._deferred_init[1]), \
                     "Failed to load Parameter %s on %s because it was " \
                     "previous initialized on %s."%(
                         self.name, str(ctx), str(self.list_ctx()))
@@ -128,14 +145,14 @@ class Parameter(object):
                 "previous initialized on %s."%(
                     self.name, str(ctx), str(self.list_ctx()))
             self.set_data(data)
-        self._defered_init = ()
+        self._deferred_init = ()
 
     def _finish_deferred_init(self):
         """Finishes deferred initialization."""
-        if not self._defered_init:
+        if not self._deferred_init:
             return
-        init, ctx, default_init = self._defered_init
-        self._defered_init = ()
+        init, ctx, default_init = self._deferred_init
+        self._deferred_init = ()
         assert self.shape is not None and np.prod(self.shape) > 0, \
             "Cannot initialize Parameter %s because it has " \
             "invalid shape: %s. Please specify in_units, " \
@@ -227,12 +244,12 @@ class Parameter(object):
             init = default_init if self.init is None else self.init
         if not self.shape or np.prod(self.shape) <= 0:
             if self.allow_deferred_init:
-                self._defered_init = (init, ctx, default_init)
+                self._deferred_init = (init, ctx, default_init)
                 return
             raise ValueError("Cannot initialize Parameter %s because it has " \
                              "invalid shape: %s."%(self.name, str(self.shape)))
 
-        self._defered_init = (init, ctx, default_init)
+        self._deferred_init = (init, ctx, default_init)
         self._finish_deferred_init()
 
     def reset_ctx(self, ctx):
@@ -250,9 +267,9 @@ class Parameter(object):
             data = self._reduce()
             with autograd.pause():
                 self._init_impl(data, ctx)
-        elif self._defered_init:
-            init, _, default_init = self._defered_init
-            self._defered_init = (init, ctx, default_init)
+        elif self._deferred_init:
+            init, _, default_init = self._deferred_init
+            self._deferred_init = (init, ctx, default_init)
         else:
             raise ValueError("Cannot reset context for Parameter %s because it "
                              "has not been initialized."%self.name)
@@ -325,8 +342,8 @@ class Parameter(object):
     def list_ctx(self):
         """Returns a list of contexts this parameter is initialized on."""
         if self._data is None:
-            if self._defered_init:
-                return self._defered_init[1]
+            if self._deferred_init:
+                return self._deferred_init[1]
             raise RuntimeError("Parameter %s has not been initialized"%self.name)
         return list(self._data.keys())
 
@@ -361,7 +378,7 @@ class ParameterDict(object):
     """
     def __init__(self, prefix='', shared=None):
         self._prefix = prefix
-        self._params = {}
+        self._params = OrderedDict()
         self._shared = shared
 
     def __getitem__(self, key):

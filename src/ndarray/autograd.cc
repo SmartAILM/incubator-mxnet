@@ -1,5 +1,23 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 /*!
- *  Copyright (c) 2017 by Contributors
  * \file autograd.cc
  * \brief Implementation of AutogradRuntime module.
  */
@@ -23,9 +41,11 @@ using nnvm::NodeEntryMap;
 using exec::GraphExecutor;
 
 #if DMLC_CXX11_THREAD_LOCAL
-thread_local bool AutogradRuntime::is_train_;
+thread_local bool AutogradRuntime::is_train_ = false;
+thread_local bool AutogradRuntime::is_recording_ = false;
 #else
-MX_THREAD_LOCAL bool AutogradRuntime::is_train_;
+MX_THREAD_LOCAL bool AutogradRuntime::is_train_ = false;
+MX_THREAD_LOCAL bool AutogradRuntime::is_recording_ = false;
 #endif
 
 template<typename FVisit>
@@ -62,19 +82,21 @@ void AutogradRuntime::MarkVariables(
   for (uint32_t i = 0; i < variables.size(); ++i) {
     std::string str_c(std::to_string(variable_count_++));
 
-    AGNodeEntry e{AGNode::Create(Node::Create()), 0, 0};
+    AGNodeEntry e{
+      AGNode::Create(
+        nnvm::Symbol::CreateVariable("var" + str_c).outputs[0].node), 0, 0};
     variables[i]->entry_.clear();
     e.ag_node->outputs.emplace_back(*variables[i]);
 
-    AGNodeEntry ge{AGNode::Create(Node::Create()), 0, 0};
+    AGNodeEntry ge{
+      AGNode::Create(
+        nnvm::Symbol::CreateVariable("grad" + str_c).outputs[0].node), 0, 0};
     gradients[i]->entry_.clear();
     ge.ag_node->outputs.emplace_back(*gradients[i]);
-    ge.ag_node->nn_node->attrs.name = "grad" + str_c;
     gradients[i]->entry_ = std::move(ge);
     e.ag_node->out_grads.emplace_back(*gradients[i]);
 
     e.ag_node->grad_req = static_cast<OpReqType>(grad_reqs[i]);
-    e.ag_node->nn_node->attrs.name = "var" + str_c;
     variables[i]->entry_ = std::move(e);  // assign last to prevent cyclic reference
   }
 }
@@ -121,10 +143,12 @@ AGNodePtr AutogradRuntime::RecordOp(const nnvm::Op* op,
 
   for (size_t i = 0; i < inputs.size(); ++i) {
     if (inputs[i].entry_.is_none()) {
-      AGNodeEntry e{AGNode::Create(Node::Create()), 0, 0};
+      AGNodeEntry e{
+        AGNode::Create(
+          nnvm::Symbol::CreateVariable(
+            "null" + std::to_string(variable_count_++)).outputs[0].node), 0, 0};
       e.ag_node->outputs.emplace_back(inputs[i]);
       e.ag_node->out_grads.emplace_back();
-      e.ag_node->nn_node->attrs.name = "var_" + std::to_string(variable_count_++);
       inputs[i].entry_ = std::move(e);  // assign last to prevent cyclic reference
     }
     nn_node->inputs.push_back(inputs[i].entry_.nn_entry());
@@ -149,7 +173,7 @@ AGNodePtr AutogradRuntime::RecordOp(const nnvm::Op* op,
 
 void AutogradRuntime::ComputeGradient(const std::vector<NDArray>& outputs,
                                       const std::vector<NDArray>& ograds,
-                                      bool retain_graph) {
+                                      bool retain_graph, bool is_train) {
   static auto& fmutate_inputs = nnvm::Op::GetAttr<nnvm::FMutateInputs>("FMutateInputs");
   std::vector<AGNodeEntry> heads;
   Symbol sym;
@@ -157,7 +181,7 @@ void AutogradRuntime::ComputeGradient(const std::vector<NDArray>& outputs,
   for (const auto& i : outputs) {
     CHECK(!i.entry_.is_none())
       << "Cannot differentiate node because it is not in a computational graph. "
-      << "You need to set is_training to true or use autograd.record() to save "
+      << "You need to set is_recording to true or use autograd.record() to save "
       << "computational graphs for backward. If you want to differentiate the same "
       << "graph twice, you need to pass retain_graph=True to backward.";
     heads.emplace_back(i.entry_);
@@ -233,7 +257,7 @@ void AutogradRuntime::ComputeGradient(const std::vector<NDArray>& outputs,
       }
     }
 
-    exec->Backward(head_grads);
+    exec->Backward(head_grads, is_train);
     delete exec;
   }
 

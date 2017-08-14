@@ -1,3 +1,20 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 # coding: utf-8
 # pylint: disable= too-many-lines, redefined-builtin, protected-access
 # pylint: disable=import-error, no-name-in-module, undefined-variable
@@ -124,6 +141,7 @@ fixed-size items.
 
     """
     __slots__ = []
+    # make numpy functions return NDArray instead of numpy object array
     __array_priority__ = 1000.0
     # pylint: disable= no-member, undefined-variable
     def __repr__(self):
@@ -763,7 +781,7 @@ fixed-size items.
     def size(self):
         """Number of elements in the array.
 
-        Equivalent to the product of the array’s dimensions.
+        Equivalent to the product of the array's dimensions.
 
         Examples
         --------
@@ -802,7 +820,7 @@ fixed-size items.
 
     @property
     def dtype(self):
-        """Data-type of the array’s elements.
+        """Data-type of the array's elements.
 
         Returns
         -------
@@ -1058,22 +1076,30 @@ fixed-size items.
         check_call(_LIB.MXNDArrayDetach(self.handle, ctypes.byref(hdl)))
         return NDArray(hdl)
 
-    def backward(self, out_grad=None, retain_graph=False):
+    def backward(self, out_grad=None, retain_graph=False, train_mode=True):
         """Compute the gradients of this NDArray w.r.t variables.
 
         Parameters
         ----------
-        out_grad: list of NDArray or None
+        out_grad : NDArray, optional
+            Gradient with respect to head.
+        retain_graph : bool, optional
+            Whether to retain the computaion graph for another backward
+            pass on the same graph. By default the computaion history
+            is cleared.
+        train_mode : bool, optional
+            Whether to compute gradient for training or inference.
         """
         if out_grad is None:
             ograd_handles = [NDArrayHandle(0)]
         else:
             ograd_handles = [out_grad.handle]
 
-        check_call(_LIB.MXAutogradBackward(
+        check_call(_LIB.MXAutogradBackwardEx(
             1, c_array(NDArrayHandle, [self.handle]),
             c_array(NDArrayHandle, ograd_handles),
-            ctypes.c_int(retain_graph)))
+            ctypes.c_int(retain_graph),
+            ctypes.c_int(train_mode)))
 
 
 def onehot_encode(indices, out):
@@ -2529,7 +2555,6 @@ def _make_ndarray_function(handle, name):
         else:
             signature.append('%s=_Null'%name)
             kwarg_names.append(name)
-    #signature.append('is_train=False')
     signature.append('out=None')
     signature.append('name=None')
     signature.append('**kwargs')

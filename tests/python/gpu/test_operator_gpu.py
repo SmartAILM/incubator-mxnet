@@ -1,3 +1,20 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 import sys
 import os
 import time
@@ -11,7 +28,7 @@ sys.path.insert(0, os.path.join(curr_path, '../unittest'))
 from test_operator import *
 from test_optimizer import *
 from test_random import *
-from test_nn import *
+from test_gluon import *
 #from test_rnn import *
 from test_gluon_rnn import *
 
@@ -606,7 +623,6 @@ def test_bilinear_sampler_with_type():
     check_consistency(sym, ctx_list)
     check_consistency(sym, ctx_list, grad_req="add")
 
-
 def test_grid_generator_with_type():
     data = mx.sym.Variable('data')
     sym = mx.sym.GridGenerator(data=data, transform_type='affine', target_shape=(20, 20))
@@ -620,6 +636,19 @@ def test_grid_generator_with_type():
     check_consistency(sym, ctx_list)
     check_consistency(sym, ctx_list, grad_req="add")
 
+def test_spatial_transformer_with_type():
+    np.random.seed(1234)
+    data = mx.sym.Variable('data')
+    loc = mx.sym.Flatten(data)
+    loc = mx.sym.FullyConnected(data=loc, num_hidden=10)
+    loc = mx.sym.Activation(data=loc, act_type='relu')
+    loc = mx.sym.FullyConnected(data=loc, num_hidden=6)
+    sym = mx.sym.SpatialTransformer(data=data, loc=loc, target_shape=(10, 10),
+                                    transform_type="affine", sampler_type="bilinear")
+    ctx_list = [{'ctx': mx.gpu(0), 'data': (1, 5, 10, 10), 'type_dict': {'data': np.float32}},
+                {'ctx': mx.cpu(0), 'data': (1, 5, 10, 10), 'type_dict': {'data': np.float32}}]
+    check_consistency(sym, ctx_list)
+    check_consistency(sym, ctx_list, grad_req="add")
 
 # Checking max pooling consistency over the data sets of different float types is problematic
 # as one max value in a float32 data set may not be the max value in a float16 data set.
